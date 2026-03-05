@@ -4,7 +4,7 @@ import os
 import time
 from pydub import AudioSegment
 
-# --- 1. 錯誤翻譯字典 (完整保留) ---
+# --- 1. 錯誤翻譯字典 ---
 ERROR_MESSAGES = {
     "404": "🔍 找不到 AI 模型：這可能是因為型號名稱輸入錯誤，請檢查設定。",
     "429": "⏳ 哎呀，AI 累了：目前使用人數過多或超過免費額度，請等一分鐘後再試。",
@@ -30,11 +30,10 @@ def get_valid_mime_type(filename):
         "flac": "audio/flac"
     }
     return mime_map.get(ext, "application/octet-stream")
-    
+
 # --- 4. 側邊欄：統一設定區 ---
 with st.sidebar:
     st.header("設定")
-    
     api_key = st.text_input("輸入金鑰", type="password")
     st.link_button("🔑 取得 Google API 金鑰", "https://aistudio.google.com/app/apikey")
     
@@ -57,7 +56,7 @@ with st.sidebar:
 
 # --- 5. 主頁面邏輯 ---
 st.title("🎙️ 我的專屬 AI 錄音轉寫工具 (長音檔優化版)")
-st.write("針對長音檔自動執行「切割、轉錄、去重、總結」流水線。")
+st.write("針對長音檔自動執行「上傳、轉錄、去重、總結」流水線。")
 
 if not api_key:
     st.warning("👈 請在側邊欄輸入 API 金鑰以啟用功能。")
@@ -65,65 +64,65 @@ if not api_key:
 
 genai.configure(api_key=api_key)
 
-# --- 6. 檔案上傳 ---
-uploaded_files = st.file_uploader(
-    "上傳多個切割後的音檔 (建議每個 10-15 分鐘)",
-    type=['mp3', 'wav', 'm4a'],
-    accept_multiple_files=True
-)
+# --- 6. 上傳檔案介面 ---
+uploaded_files = st.file_uploader("選擇錄音檔 (mp3, wav, m4a)", type=['mp3', 'wav', 'm4a'], accept_multiple_files=True)
 
 if uploaded_files:
+    # 按照檔名排序，確保轉錄順序正確
     sorted_files = sorted(uploaded_files, key=lambda x: x.name)
-    st.info(f"📁 已準備處理 {len(sorted_files)} 個檔案，順序將依據檔名排序。")
-
-    if st.button("🚀 開始依序轉錄"):
-        all_transcripts = []
+    
+    for uploaded_file in sorted_files:
+        st.write(f"**已就緒：{uploaded_file.name}**")
+        st.audio(uploaded_file)
+    
+    if st.button("開始轉錄並生成摘要"):
+        all_transcripts = [] # 初始化存放所有轉錄結果的列表
+        full_progress = st.progress(0) # 初始化進度條
         
-        # 建立一個進度條
-        full_progress = st.progress(0)
-        
-        # 第一階段：逐一轉錄
+        # --- 第一階段：逐一轉錄各個片段 ---
         for idx, uploaded_file in enumerate(sorted_files):
-            with st.status(f"正在轉錄片段：{uploaded_file.name}", expanded=True) as status:
+            with st.status(f"正在處理片段：{uploaded_file.name}...", expanded=True) as status:
                 try:
-                    # A. 存入暫存檔
-                    temp_name = f"temp_{uploaded_file.name}"
-                    with open(temp_name, "wb") as f:
+                    # A. 儲存臨時檔案
+                    temp_filename = f"temp_{uploaded_file.name}"
+                    with open(temp_filename, "wb") as f:
                         f.write(uploaded_file.getbuffer())
-
-                    # B. 上傳至 Google
-                    st.write("檔案上傳中...")
-                    g_file = genai.upload_file(path=temp_name)
                     
-                    while g_file.state.name == "PROCESSING":
+                    # B. 上傳至 Google File API 並指定 MIME 類型
+                    st.write("檔案上傳中...")
+                    mime_type = get_valid_mime_type(uploaded_file.name)
+                    audio_file = genai.upload_file(path=temp_filename, mime_type=mime_type)
+                    
+                    while audio_file.state.name == "PROCESSING":
                         time.sleep(2)
-                        g_file = genai.upload_file(path=temp_name, mime_type=uploaded_file.type)
+                        audio_file = genai.get_file(audio_file.name)
                     
                     # C. 初始化模型
                     model = genai.GenerativeModel(
                         model_name=model_choice,
                         system_instruction="你是一位擁有20年經驗的「首席速記官與語意分析專家」。你具備極強的邏輯推理能力，能從模糊的語音資訊中，根據前後文精準還原對話內容。"
                     )
-
-                    # D. 執行轉錄
+                    
+                    # D. 執行單段轉錄
                     st.write("AI 正在解析內容...")
-                    chunk_prompt = f"請逐字轉錄此片段。背景為：{context_input}。請標註說話人與時間戳。"
+                    chunk_prompt = f"請逐字轉錄這段音訊。背景資訊：{context_input}。請標註說話人與時間戳。"
                     
                     gen_config = {}
                     if use_thinking and "pro" in model_choice:
                         gen_config["thinking_config"] = {"include_thoughts": True}
                     
                     response = model.generate_content(
-                        [chunk_prompt, g_file],
+                        [chunk_prompt, audio_file],
                         generation_config=gen_config,
                         request_options={"timeout": 600}
                     )
                     
                     all_transcripts.append(response.text)
-                    st.markdown(response.text)
-                    status.update(label=f"✅ {uploaded_file.name} 轉錄完成！", state="complete")
+                    st.markdown(f"**{uploaded_file.name} 轉錄草稿：**")
+                    st.write(response.text)
                     
-                    os.remove(temp_name) # 清理
+                    status.update(label=f"✅ {uploaded_file.name} 處理完成", state="complete")
+                    os.remove(temp_filename) # 清理
 
                 except Exception as e:
                     error_str = str(e)
@@ -136,13 +135,12 @@ if uploaded_files:
             
             full_progress.progress((idx + 1) / len(sorted_files))
 
-        # 第二階段：大一統語意整合 (Grand Synthesis)
+        # --- 第二階段：大一統整合 (當所有片段轉錄完成後) ---
         if all_transcripts:
             st.divider()
-            with st.status("✨ 正在執行「大一統」語意整合與去重...", expanded=True) as status:
+            with st.status("✨ 正在執行最終整合與摘要...", expanded=True) as status:
                 full_raw_context = "\n\n--- 分段線 ---\n\n".join(all_transcripts)
                 
-                # 完整保留您的任務指令
                 final_prompt = f"""
                 以下是長音檔分段轉錄的結果（包含重疊部分）。
                 請執行以下任務：
@@ -164,9 +162,8 @@ if uploaded_files:
                 st.markdown(final_response.text)
                 status.update(label="✅ 全文處理完成！", state="complete")
 
-                # 提供最終下載按鈕
                 st.download_button(
-                    label="📥 下載完整報告",
+                    label="📥 下載完整報告 (Markdown)",
                     data=final_response.text,
                     file_name="Final_Transcription_Report.md",
                     mime="text/markdown"
