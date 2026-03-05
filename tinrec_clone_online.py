@@ -17,30 +17,20 @@ ERROR_MESSAGES = {
 # --- 2. 頁面設定 ---
 st.set_page_config(page_title="AI 批次轉寫工具", layout="wide")
 
-# --- 3. 工具函數：重疊切割音檔 (保留備用) ---
-def split_audio_with_overlap(file_path, chunk_min=10, overlap_sec=30):
-    """將音檔切割成有重疊的小段，避免斷句在關鍵處"""
-    audio = AudioSegment.from_file(file_path)
-    chunk_length = chunk_min * 60 * 1000
-    overlap = overlap_sec * 1000
+# --- 3. 輔助函數：強制判定 MIME 類型 ---
+def get_valid_mime_type(filename):
+    """根據副檔名回傳 Google API 支援的標準格式"""
+    ext = filename.split('.')[-1].lower()
+    mime_map = {
+        "mp3": "audio/mpeg",
+        "m4a": "audio/mp4",
+        "wav": "audio/wav",
+        "aac": "audio/aac",
+        "ogg": "audio/ogg",
+        "flac": "audio/flac"
+    }
+    return mime_map.get(ext, "application/octet-stream")
     
-    chunks = []
-    start = 0
-    count = 0
-    
-    while start < len(audio):
-        end = start + chunk_length
-        chunk = audio[start:end]
-        chunk_name = f"chunk_{count}_{os.path.basename(file_path)}.mp4"
-        chunk.export(chunk_name, format="mp4")
-        chunks.append(chunk_name)
-        
-        start += (chunk_length - overlap)
-        count += 1
-        if len(audio) - start < 30000:
-            break
-    return chunks
-
 # --- 4. 側邊欄：統一設定區 ---
 with st.sidebar:
     st.header("設定")
