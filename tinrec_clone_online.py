@@ -14,10 +14,10 @@ ERROR_MESSAGES = {
     "499": "⚡ 連線逾時：音檔處理時間過長，已自動切換為分段模式處理。"
 }
 
-# --- 2. 頁面設定 (必須在最上方，且只能有一個) ---
-st.set_page_config(page_title="我的 AI 秒聽錄音 - 專業分段版", layout="wide")
+# --- 2. 頁面設定 ---
+st.set_page_config(page_title="AI 批次轉寫工具", layout="wide")
 
-# --- 3. 工具函數：重疊切割音檔 ---
+# --- 3. 工具函數：重疊切割音檔 (保留備用) ---
 def split_audio_with_overlap(file_path, chunk_min=10, overlap_sec=30):
     """將音檔切割成有重疊的小段，避免斷句在關鍵處"""
     audio = AudioSegment.from_file(file_path)
@@ -37,19 +37,17 @@ def split_audio_with_overlap(file_path, chunk_min=10, overlap_sec=30):
         
         start += (chunk_length - overlap)
         count += 1
-        if len(audio) - start < 30000: # 剩餘不足30秒則跳出
+        if len(audio) - start < 30000:
             break
     return chunks
 
-# --- 4. 側邊欄：統一設定區 (修復 Duplicate ID 問題) ---
+# --- 4. 側邊欄：統一設定區 ---
 with st.sidebar:
     st.header("設定")
     
-    # 讓使用者自備金鑰
     api_key = st.text_input("輸入金鑰", type="password")
     st.link_button("🔑 取得 Google API 金鑰", "https://aistudio.google.com/app/apikey")
     
-    # 模型設定 (完整保留您的 ID 清單)
     model_choice = st.selectbox(
         "選擇模型",
         [
@@ -63,46 +61,53 @@ with st.sidebar:
 
     context_input = st.text_area(
         "專業背景描述 (重要)",
-        placeholder="               ",
+        placeholder="請輸入音檔背景資訊...",
         help="提供背景能大幅提升專有名詞辨識率"
     )
-    
-    chunk_size = st.slider("每段切割長度 (分鐘)", 5, 15, 10)
 
 # --- 5. 主頁面邏輯 ---
 st.title("🎙️ 我的專屬 AI 錄音轉寫工具 (長音檔優化版)")
 st.write("針對長音檔自動執行「切割、轉錄、去重、總結」流水線。")
 
-# 檢查金鑰
 if not api_key:
     st.warning("👈 請在側邊欄輸入 API 金鑰以啟用功能。")
     st.stop()
 
 genai.configure(api_key=api_key)
 
-# --- 6. 上傳介面 ---
-uploaded_files = st.file_uploader("選擇錄音檔 (mp3, wav, m4a)", type=['mp3', 'wav', 'm4a'], accept_multiple_files=True)
+# --- 6. 檔案上傳 ---
+uploaded_files = st.file_uploader(
+    "上傳多個切割後的音檔 (建議每個 10-15 分鐘)",
+    type=['mp3', 'wav', 'm4a'],
+    accept_multiple_files=True
+)
 
 if uploaded_files:
-    for uploaded_file in uploaded_files:
-        st.write(f"**音檔：{uploaded_file.name}**")
-        st.audio(uploaded_file)
+    sorted_files = sorted(uploaded_files, key=lambda x: x.name)
+    st.info(f"📁 已準備處理 {len(sorted_files)} 個檔案，順序將依據檔名排序。")
 
-    if st.button("🚀 開始自動化分段處理"):
-        for uploaded_file in uploaded_files:
-            with st.status(f"正在處理：{uploaded_file.name}...", expanded=True) as status:
+    if st.button("🚀 開始依序轉錄"):
+        all_transcripts = []
+        
+        # 建立一個進度條
+        full_progress = st.progress(0)
+        
+        # 第一階段：逐一轉錄
+        for idx, uploaded_file in enumerate(sorted_files):
+            with st.status(f"正在轉錄片段：{uploaded_file.name}", expanded=True) as status:
                 try:
-                    # A. 儲存原始臨時檔案
-                    raw_filename = f"raw_{uploaded_file.name}"
-                    with open(raw_filename, "wb") as f:
+                    # A. 存入暫存檔
+                    temp_name = f"temp_{uploaded_file.name}"
+                    with open(temp_name, "wb") as f:
                         f.write(uploaded_file.getbuffer())
 
-                    # B. 執行重疊切割
-                    st.write("正在進行重疊切割...")
-                    chunks = split_audio_with_overlap(raw_filename, chunk_min=chunk_size)
+                    # B. 上傳至 Google
+                    st.write("檔案上傳中...")
+                    g_file = genai.upload_file(path=temp_name)
                     
-                    all_chunk_texts = []
-                    progress_bar = st.progress(0)
+                    while g_file.state.name == "PROCESSING":
+                        time.sleep(2)
+                        g_file = genai.get_file(g_file.name)
                     
                     # C. 初始化模型
                     model = genai.GenerativeModel(
@@ -110,67 +115,25 @@ if uploaded_files:
                         system_instruction="你是一位擁有20年經驗的「首席速記官與語意分析專家」。你具備極強的邏輯推理能力，能從模糊的語音資訊中，根據前後文精準還原對話內容。"
                     )
 
-                    # D. 循序處理每一個片段
-                    for i, chunk_path in enumerate(chunks):
-                        st.write(f"正在轉錄第 {i+1}/{len(chunks)} 段...")
-                        
-                        google_file = genai.upload_file(path=chunk_path)
-                        while google_file.state.name == "PROCESSING":
-                            time.sleep(2)
-                            google_file = genai.get_file(google_file.name)
-                        
-                        chunk_prompt = f"請逐字轉錄此片段。背景為：{context_input}。請標註說話人與時間戳。"
-                        
-                        # 設定生成參數
-                        gen_config = {}
-                        if use_thinking and "pro" in model_choice:
-                            gen_config["thinking_config"] = {"include_thoughts": True}
-                        
-                        response = model.generate_content([chunk_prompt, google_file], generation_config=gen_config)
-                        all_chunk_texts.append(response.text)
-                        
-                        progress_bar.progress((i + 1) / len(chunks))
-                        os.remove(chunk_path) # 清理片段檔
-
-                    # E. 大一統語意整合 (Grand Synthesis)
-                    st.write("正在執行「大一統」語意整合與去重...")
-                    full_raw_context = "\n\n--- 分段線 ---\n\n".join(all_chunk_texts)
+                    # D. 執行轉錄
+                    st.write("AI 正在解析內容...")
+                    chunk_prompt = f"請逐字轉錄此片段。背景為：{context_input}。請標註說話人與時間戳。"
                     
-                    # 完整保留您的任務指令
-                    final_prompt = f"""
-                    以下是長音檔分段轉錄的結果（包含重疊部分）。
-                    請執行以下任務：
-                    1.上下文校準：不要只進行單字轉譯。請掃描整段對話，若出現發音相似但邏輯不通的詞彙請根據語境與專有名詞庫自動修正。
-                    2.專有名詞優先：對技術名詞、公司產品名、專案代號保持高度敏感。若語音模糊，請根據背景「{context_input}」修正所有專有名詞。
-                    3.辨識不同的說話人（標註為 說話人 A, B...）。
-                    4.每段話前加上 [mm:ss] 時間戳。
-                    5.【精準去重】：移除段落接縫處重複的語句，整合成流暢的全文。
-                    6.【結構化摘要】：提供 300 字摘要與 5 個行動重點。
-                    7.【全文輸出】：輸出校正後的完整逐字稿。
+                    gen_config = {}
+                    if use_thinking and "pro" in model_choice:
+                        gen_config["thinking_config"] = {"include_thoughts": True}
                     
-                    待處理文本：
-                    {full_raw_context}
-                    """
-                    
-                    final_response = model.generate_content(final_prompt)
-                    
-                    status.update(label=f"✅ {uploaded_file.name} 全文處理完成！", state="complete", expanded=False)
-
-                    # F. 呈現結果與下載
-                    st.success(f"🎉 {uploaded_file.name} 處理完畢！")
-                    st.subheader("📝 最終整合報告")
-                    st.markdown(final_response.text)
-                    
-                    st.download_button(
-                        label="📥 下載完整報告",
-                        data=final_response.text,
-                        file_name=f"Final_{uploaded_file.name}.md",
-                        mime="text/markdown",
-                        key=f"dl_{uploaded_file.name}" # 確保 ID 唯一
+                    response = model.generate_content(
+                        [chunk_prompt, g_file],
+                        generation_config=gen_config,
+                        request_options={"timeout": 600}
                     )
-
-                    # 最終清理原始暫存
-                    os.remove(raw_filename)
+                    
+                    all_transcripts.append(response.text)
+                    st.markdown(response.text)
+                    status.update(label=f"✅ {uploaded_file.name} 轉錄完成！", state="complete")
+                    
+                    os.remove(temp_name) # 清理
 
                 except Exception as e:
                     error_str = str(e)
@@ -178,5 +141,43 @@ if uploaded_files:
                         if code in error_str:
                             error_str = msg
                             break
-                    st.error(f"錯誤：{error_str}")
-                    status.update(label="❌ 處理中斷", state="error")
+                    st.error(f"發生錯誤：{error_str}")
+                    status.update(label="❌ 處理失敗", state="error")
+            
+            full_progress.progress((idx + 1) / len(sorted_files))
+
+        # 第二階段：大一統語意整合 (Grand Synthesis)
+        if all_transcripts:
+            st.divider()
+            with st.status("✨ 正在執行「大一統」語意整合與去重...", expanded=True) as status:
+                full_raw_context = "\n\n--- 分段線 ---\n\n".join(all_transcripts)
+                
+                # 完整保留您的任務指令
+                final_prompt = f"""
+                以下是長音檔分段轉錄的結果（包含重疊部分）。
+                請執行以下任務：
+                1.上下文校準：不要只進行單字轉譯。請掃描整段對話，若出現發音相似但邏輯不通的詞彙請根據語境與專有名詞庫自動修正。
+                2.專有名詞優先：對技術名詞、公司產品名、專案代號保持高度敏感。若語音模糊，請根據背景「{context_input}」修正所有專有名詞。
+                3.辨識不同的說話人（標註為 說話人 A, B...）。
+                4.每段話前加上 [mm:ss] 時間戳。
+                5.【精準去重】：移除段落接縫處重複的語句，整合成流暢的全文。
+                6.【結構化摘要】：提供 300 字摘要與 5 個行動重點。
+                7.【全文輸出】：輸出校正後的完整逐字稿。
+                
+                待處理文本：
+                {full_raw_context}
+                """
+                
+                final_response = model.generate_content(final_prompt)
+                
+                st.subheader("📝 最終整合報告")
+                st.markdown(final_response.text)
+                status.update(label="✅ 全文處理完成！", state="complete")
+
+                # 提供最終下載按鈕
+                st.download_button(
+                    label="📥 下載完整報告",
+                    data=final_response.text,
+                    file_name="Final_Transcription_Report.md",
+                    mime="text/markdown"
+                )
