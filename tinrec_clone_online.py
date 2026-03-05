@@ -14,9 +14,28 @@ ERROR_MESSAGES = {
     "499": "⚡ 連線逾時：音檔處理時間過長，已自動切換為分段模式處理。"
 }
 
-# --- 2. 配置 API Key (建議改用 st.secrets) ---
-API_KEY = "AIzaSyAfLc2HFyV2Urj2VIsWnLMERgp4KnHLx-4" # 請確保此金鑰有效
-genai.configure(api_key=API_KEY)
+##### 2. 側邊欄：設定與金鑰輸入 [1]
+with st.sidebar:
+    st.header("設定")
+    
+    # 讓使用者自備金鑰
+    api_key = st.text_input("輸入金鑰", type="password")
+    
+    # 新增：取得 API 金鑰的連結按鈕
+    st.link_button("🔑 取得 Google API 金鑰", "https://aistudio.google.com/app/apikey")
+    
+    # 模型設定
+    model_choice = st.selectbox(
+        "選擇模型 (Gemini 3 系列)",
+        [
+            "gemini-2.5-flash",
+            "gemini-2.5-flash-lite",
+            "gemini-2.5-flash",
+            "gemini-3-flash-preview",
+            "gemini-3.1-flash-lite-preview",
+        ]
+    )
+    use_thinking = st.checkbox("啟用思考模式")
 
 # --- 3. 工具函數：重疊切割音檔 ---
 def split_audio_with_overlap(file_path, chunk_min=10, overlap_sec=30):
