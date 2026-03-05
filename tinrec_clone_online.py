@@ -61,14 +61,6 @@ with st.sidebar:
     )
     use_thinking = st.checkbox("啟用思考模式")
 
-# 檢查金鑰是否存在
-if not api_key:
-    st.warning("請輸入金鑰以啟用 AI 功能")
-    st.stop()
-
-# 若已輸入金鑰，則進行設定
-genai.configure(api_key=api_key)
-
     context_input = st.text_area(
         "專業背景描述 (重要)",
         placeholder="               ",
@@ -76,6 +68,17 @@ genai.configure(api_key=api_key)
     )
     
     chunk_size = st.slider("每段切割長度 (分鐘)", 5, 15, 10)
+
+# --- 5. 主頁面邏輯 ---
+st.title("🎙️ 我的專屬 AI 錄音轉寫工具 (長音檔優化版)")
+st.write("針對長音檔自動執行「切割、轉錄、去重、總結」流水線。")
+
+# 檢查金鑰
+if not api_key:
+    st.warning("👈 請在側邊欄輸入 API 金鑰以啟用功能。")
+    st.stop()
+
+genai.configure(api_key=api_key)
 
 # --- 6. 上傳介面 ---
 uploaded_files = st.file_uploader("選擇錄音檔 (mp3, wav, m4a)", type=['mp3', 'wav', 'm4a'], accept_multiple_files=True)
