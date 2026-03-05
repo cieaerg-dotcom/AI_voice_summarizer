@@ -20,7 +20,7 @@ with st.sidebar:
     st.link_button("🔑 取得 Google API 金鑰", "https://aistudio.google.com/app/apikey")
     
     # 模型設定
-        model_choice = st.selectbox(
+    model_choice = st.selectbox(
         "選擇模型 (Gemini 3 系列)",
         [
             "gemini-2.5-flash",
