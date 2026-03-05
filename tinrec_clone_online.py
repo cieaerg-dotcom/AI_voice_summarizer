@@ -4,7 +4,7 @@ import os
 import time
 from pydub import AudioSegment
 
-# --- 1. 錯誤翻譯字典 ---
+# --- 1. 錯誤翻譯字典 (完整保留) ---
 ERROR_MESSAGES = {
     "404": "🔍 找不到 AI 模型：這可能是因為型號名稱輸入錯誤，請檢查設定。",
     "429": "⏳ 哎呀，AI 累了：目前使用人數過多或超過免費額度，請等一分鐘後再試。",
@@ -14,34 +14,12 @@ ERROR_MESSAGES = {
     "499": "⚡ 連線逾時：音檔處理時間過長，已自動切換為分段模式處理。"
 }
 
-##### 2. 側邊欄：設定與金鑰輸入 [1]
-with st.sidebar:
-    st.header("設定")
-    
-    # 讓使用者自備金鑰
-    api_key = st.text_input("輸入金鑰", type="password")
-    
-    # 新增：取得 API 金鑰的連結按鈕
-    st.link_button("🔑 取得 Google API 金鑰", "https://aistudio.google.com/app/apikey")
-    
-    # 模型設定
-    model_choice = st.selectbox(
-        "選擇模型 (Gemini 3 系列)",
-        [
-            "gemini-2.5-flash",
-            "gemini-2.5-flash-lite",
-            "gemini-2.5-flash",
-            "gemini-3-flash-preview",
-            "gemini-3.1-flash-lite-preview",
-        ]
-    )
-    use_thinking = st.checkbox("啟用思考模式")
+# --- 2. 頁面設定 (必須在最上方，且只能有一個) ---
+st.set_page_config(page_title="我的 AI 秒聽錄音 - 專業分段版", layout="wide")
 
 # --- 3. 工具函數：重疊切割音檔 ---
 def split_audio_with_overlap(file_path, chunk_min=10, overlap_sec=30):
-    """
-    將音檔切割成有重疊的小段，避免斷句在關鍵處
-    """
+    """將音檔切割成有重疊的小段，避免斷句在關鍵處"""
     audio = AudioSegment.from_file(file_path)
     chunk_length = chunk_min * 60 * 1000
     overlap = overlap_sec * 1000
@@ -53,8 +31,8 @@ def split_audio_with_overlap(file_path, chunk_min=10, overlap_sec=30):
     while start < len(audio):
         end = start + chunk_length
         chunk = audio[start:end]
-        chunk_name = f"chunk_{count}_{os.path.basename(file_path)}"
-        chunk.export(chunk_name, format="mp4") # m4a 容器
+        chunk_name = f"chunk_{count}_{os.path.basename(file_path)}.mp4"
+        chunk.export(chunk_name, format="mp4")
         chunks.append(chunk_name)
         
         start += (chunk_length - overlap)
@@ -63,24 +41,17 @@ def split_audio_with_overlap(file_path, chunk_min=10, overlap_sec=30):
             break
     return chunks
 
-# --- 4. 頁面設定 ---
-st.set_page_config(page_title="我的 AI 秒聽錄音 - 專業分段版", layout="wide")
-st.title("🎙️ 我的專屬 AI 錄音轉寫工具 (長音檔優化版)")
-st.write("針對長音檔自動執行「切割、轉錄、去重、總結」流水線。")
-
-# --- 5. 側邊欄：設定 ---
+# --- 4. 側邊欄：統一設定區 (修復 Duplicate ID 問題) ---
 with st.sidebar:
     st.header("設定")
     
     # 讓使用者自備金鑰
     api_key = st.text_input("輸入金鑰", type="password")
-    
-    # 新增：取得 API 金鑰的連結按鈕
     st.link_button("🔑 取得 Google API 金鑰", "https://aistudio.google.com/app/apikey")
     
-    # 模型設定
+    # 模型設定 (完整保留您的 ID 清單)
     model_choice = st.selectbox(
-        "選擇模型 (Gemini 3 系列)",
+        "選擇模型",
         [
             "gemini-2.5-flash",
             "gemini-2.5-flash-lite",
@@ -92,24 +63,25 @@ with st.sidebar:
 
     context_input = st.text_area(
         "專業背景描述 (重要)",
-        placeholder="                   ",
+        placeholder="               ",
         help="提供背景能大幅提升專有名詞辨識率"
     )
     
     chunk_size = st.slider("每段切割長度 (分鐘)", 5, 15, 10)
 
 # --- 6. 上傳介面 ---
-uploaded_files = st.file_uploader("上傳音檔 (支援多檔)", type=['mp3', 'wav', 'm4a'], accept_multiple_files=True)
+uploaded_files = st.file_uploader("選擇錄音檔 (mp3, wav, m4a)", type=['mp3', 'wav', 'm4a'], accept_multiple_files=True)
 
 if uploaded_files:
     for uploaded_file in uploaded_files:
-        st.info(f"📁 已準備就緒：{uploaded_file.name}")
+        st.write(f"**音檔：{uploaded_file.name}**")
+        st.audio(uploaded_file)
 
     if st.button("🚀 開始自動化分段處理"):
         for uploaded_file in uploaded_files:
-            with st.status(f"正在處理：{uploaded_file.name}", expanded=True) as status:
+            with st.status(f"正在處理：{uploaded_file.name}...", expanded=True) as status:
                 try:
-                    # A. 儲存原始檔案
+                    # A. 儲存原始臨時檔案
                     raw_filename = f"raw_{uploaded_file.name}"
                     with open(raw_filename, "wb") as f:
                         f.write(uploaded_file.getbuffer())
@@ -137,7 +109,13 @@ if uploaded_files:
                             google_file = genai.get_file(google_file.name)
                         
                         chunk_prompt = f"請逐字轉錄此片段。背景為：{context_input}。請標註說話人與時間戳。"
-                        response = model.generate_content([chunk_prompt, google_file])
+                        
+                        # 設定生成參數
+                        gen_config = {}
+                        if use_thinking and "pro" in model_choice:
+                            gen_config["thinking_config"] = {"include_thoughts": True}
+                        
+                        response = model.generate_content([chunk_prompt, google_file], generation_config=gen_config)
                         all_chunk_texts.append(response.text)
                         
                         progress_bar.progress((i + 1) / len(chunks))
@@ -147,6 +125,7 @@ if uploaded_files:
                     st.write("正在執行「大一統」語意整合與去重...")
                     full_raw_context = "\n\n--- 分段線 ---\n\n".join(all_chunk_texts)
                     
+                    # 完整保留您的任務指令
                     final_prompt = f"""
                     以下是長音檔分段轉錄的結果（包含重疊部分）。
                     請執行以下任務：
@@ -164,9 +143,9 @@ if uploaded_files:
                     
                     final_response = model.generate_content(final_prompt)
                     
-                    status.update(label="✅ 全文處理完成！", state="complete", expanded=False)
+                    status.update(label=f"✅ {uploaded_file.name} 全文處理完成！", state="complete", expanded=False)
 
-                    # F. 呈現結果
+                    # F. 呈現結果與下載
                     st.success(f"🎉 {uploaded_file.name} 處理完畢！")
                     st.subheader("📝 最終整合報告")
                     st.markdown(final_response.text)
@@ -176,128 +155,17 @@ if uploaded_files:
                         data=final_response.text,
                         file_name=f"Final_{uploaded_file.name}.md",
                         mime="text/markdown",
-                        key=f"dl_{uploaded_file.name}"
+                        key=f"dl_{uploaded_file.name}" # 確保 ID 唯一
                     )
 
-                    # 最終清理
+                    # 最終清理原始暫存
                     os.remove(raw_filename)
 
                 except Exception as e:
-                    error_msg = str(e)
+                    error_str = str(e)
                     for code, msg in ERROR_MESSAGES.items():
-                        if code in error_msg:
-                            error_msg = msg
+                        if code in error_str:
+                            error_str = msg
                             break
-                    st.error(f"錯誤：{error_msg}")
+                    st.error(f"錯誤：{error_str}")
                     status.update(label="❌ 處理中斷", state="error")
-import streamlit as st
-import google.generativeai as genai
-import os
-import time
-
-# 設定頁面 [1]
-st.set_page_config(page_title="AI 錄音轉文字", layout="wide")
-
-st.title("🎙️ AI 錄音轉寫工具") 
-st.write("上傳音檔，讓 Gemini 3 系列幫你自動分段、辨識說話人與總結。")
-
-##### 2. 側邊欄：設定與金鑰輸入 [1]
-with st.sidebar:
-    st.header("設定")
-    
-    # 讓使用者自備金鑰
-    api_key = st.text_input("輸入金鑰", type="password")
-    
-    # 新增：取得 API 金鑰的連結按鈕
-    st.link_button("🔑 取得 Google API 金鑰", "https://aistudio.google.com/app/apikey")
-    
-    # 模型設定
-    model_choice = st.selectbox(
-        "選擇模型 (Gemini 3 系列)",
-        [
-            "gemini-2.5-flash",
-            "gemini-2.5-flash-lite",
-            "gemini-2.5-flash",
-            "gemini-3-flash-preview",
-            "gemini-3.1-flash-lite-preview",
-        ]
-    )
-    use_thinking = st.checkbox("啟用思考模式")
-
-# 檢查金鑰是否存在
-if not api_key:
-    st.warning("請輸入金鑰以啟用 AI 功能")
-    st.stop()
-
-# 若已輸入金鑰，則進行設定
-genai.configure(api_key=api_key)
-
-##### 3. 上傳檔案介面
-uploaded_files = st.file_uploader("選擇錄音檔 (mp3, wav, m4a)", type=['mp3', 'wav', 'm4a'], accept_multiple_files=True)
-
-# 檢查是否有上傳檔案 (此時 uploaded_files 會是一個列表)
-if uploaded_files:
-    # 使用 for 迴圈逐一處理上傳的每一個檔案
-    for uploaded_file in uploaded_files:
-        st.write(f"**音檔：{uploaded_file.name}**") # 顯示目前播放的檔名 (此行說明非來自來源，為因應多檔案新增的邏輯)
-        st.audio(uploaded_file)
-    
-    if st.button("開始轉錄並生成摘要"):
-        with st.status("正在處理音訊...", expanded=True) as status:
-            try:
-                # A. 儲存臨時檔案
-                temp_filename = "temp_audio.mp3"
-                with open(temp_filename, "wb") as f:
-                    f.write(uploaded_file.getbuffer())
-                
-                # B. 上傳至 Google File API
-                st.write("檔案上傳中...")
-                audio_file = genai.upload_file(path=temp_filename)
-                
-                while audio_file.state.name == "PROCESSING":
-                    time.sleep(2)
-                    audio_file = genai.get_file(audio_file.name)
-                
-                st.write("AI 正在解析並思考內容...")
-                
-                # C. 初始化模型與設定
-                model = genai.GenerativeModel(model_name=model_choice)
-                
-                # 設定生成參數 (含思考功能)
-                gen_config = {}
-                if use_thinking and "pro" in model_choice:
-                    gen_config["thinking_config"] = {"include_thoughts": True}
-                
-                # D. 定義 Prompt
-                prompt = """
-                請幫我完成以下任務：
-                1. 逐字轉錄這段音頻。
-                2. 辨識不同的說話人（標註為 說話人 A, B...）。
-                3. 每段話前加上 [mm:ss] 時間戳。
-                4. 在最後提供一個簡潔的會議摘要與 3 個重點行動清單。
-                """
-                
-                # E. 發送請求
-                response = model.generate_content(
-                    [prompt, audio_file],
-                    generation_config=gen_config
-                )
-                
-                status.update(label="轉錄完成！", state="complete", expanded=False)
-                
-                # F. 顯示結果與下載按鈕
-                st.subheader("📝 轉錄結果與摘要")
-                st.markdown(response.text)
-                
-                st.download_button(
-                    label="📥 下載轉錄結果 (Markdown)",
-                    data=response.text,
-                    file_name="transcription_result.md",
-                    mime="text/markdown"
-                )
-                
-                # 清理
-                os.remove(temp_filename)
-                
-            except Exception as e:
-                st.error(f"發生錯誤：{e}")
