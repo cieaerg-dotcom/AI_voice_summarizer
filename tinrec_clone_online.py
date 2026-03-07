@@ -55,13 +55,13 @@ with st.sidebar:
     # 如果你在側邊欄勾選了「啟用思考模式」，且模型名稱包含 pro 或 3 系列
     if use_thinking:
         gen_config["thinking_config"] = {
-    # "low" 可以縮短延遲並降低成本，適合指令遵循；
-    # 如果遇到非常複雜的音檔，可以改成 "medium" 或 "high"
-        "thinking_level": "low" 
+            # "low" 可以縮短延遲並降低成本，適合指令遵循；
+            # 如果遇到非常複雜的音檔，可以改成 "medium" 或 "high"
+            "thinking_level": "low" 
         }
                     
     # 執行生成
-        response = model.generate_content(
+    response = model.generate_content(
         [chunk_prompt, audio_file],
         generation_config=gen_config,
         request_options={"timeout": 600}
@@ -121,7 +121,7 @@ if uploaded_files:
                         system_instruction="你是一位擁有20年經驗的「首席速記官與語意分析專家」。你具備極強的邏輯推理能力，能從模糊的語音資訊中，根據前後文精準還原對話內容。"
                     )
                     
-                   # D. 執行單段轉錄
+                    # D. 執行單段轉錄
                     st.write("AI 正在進行高精度轉錄與校對...")
                     
                     # 💡 將原本放在最後的「苦力活」全部移到這裡，讓 AI 分段處理！
