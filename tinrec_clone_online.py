@@ -49,9 +49,6 @@ with st.sidebar:
         ]
     )
                     
-    # 💡 加上這個打勾選項，這樣 use_thinking 這個變數就真正誕生了！
-    use_thinking = st.checkbox("💡 啟用思考模式 (限 Pro/3 系列)", value=False)
-                    
     context_input = st.text_area(
         "專業背景描述 (重要)",
         placeholder="盡可能描述音檔背景、專業範圍...",
@@ -61,6 +58,10 @@ with st.sidebar:
 # --- 5. 主頁面邏輯 ---
 st.title("🎙️ 我的專屬 AI 錄音轉寫工具 (長音檔優化版)")
 st.write("針對分段音檔自動執行「上傳、轉錄、每段逐字稿（逐字稿請自行複製貼上）、總結」流水線。")
+
+# 🍞 給網頁的記憶吐司：用來記住跑完的最終報告
+if "final_report" not in st.session_state:
+    st.session_state.final_report = None
 
 if not api_key:
     st.warning("👈 請在側邊欄輸入 API 金鑰以啟用功能。")
@@ -152,7 +153,7 @@ if uploaded_files:
             
             full_progress.progress((idx + 1) / len(sorted_files))
 
-        # --- 第二階段：大一統整合 (當所有片段轉錄完成後) ---
+# --- 第二階段：大一統整合 (當所有片段轉錄完成後) ---
         if all_transcripts:
             st.divider()
             with st.status("✨ 正在執行最終整合與摘要...", expanded=True) as status:
@@ -170,13 +171,24 @@ if uploaded_files:
                 
                 final_response = model.generate_content(final_prompt)
                 
-                st.subheader("📝 最終整合報告（下載報告前請確認分段逐字稿已經複製貼上，下載後記錄將清空）")
-                st.markdown(final_response.text)
+                # 💡 關鍵修正 1：把「AI 寫的摘要」跟「Python 黏合的逐字稿」完美結合！
+                complete_report = f"{final_response.text}\n\n---\n\n## 🗣️ 完整討論脈絡（逐字紀錄）\n\n{full_raw_context}"
+                
+                # 💡 關鍵修正 2：把這份大報告塞進「記憶吐司」裡存起來！
+                st.session_state.final_report = complete_report
+                
                 status.update(label="✅ 全文處理完成！", state="complete")
 
-                st.download_button(
-                    label="📥 下載完整報告 (Markdown)",
-                    data=final_response.text,
-                    file_name="Final_Transcription_Report.md",
-                    mime="text/markdown"
-                )
+# 💡 關鍵修正 3：把顯示畫面跟下載按鈕「移出」處理按鈕的迴圈之外！
+        # 只要記憶吐司裡面有東西，就永遠顯示在畫面上，點擊下載也不會消失！
+        if st.session_state.final_report:
+            st.divider()
+            st.subheader("📝 最終整合報告")
+            st.markdown(st.session_state.final_report)
+    
+            st.download_button(
+                label="📥 下載完整報告 (包含摘要與完整逐字稿)",
+                data=st.session_state.final_report,  # 這裡下載的就會是完整的報告了
+                file_name="Final_Transcription_Report.md",
+                mime="text/markdown"
+            )
