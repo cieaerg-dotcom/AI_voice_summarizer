@@ -40,12 +40,12 @@ with st.sidebar:
     model_choice = st.selectbox(
         "選擇模型（依照個人權限選擇）",
         [
+            "gemini-3.0-flash",
             "gemini-2.5-flash",
+            "gemini-3.1-pro",
             "gemini-2.5-pro",
+            "gemini-3.1-flash-lite",
             "gemini-2.5-flash-lite",
-            "gemini-3-flash-preview",
-            "gemini-3.1-pro-preview",
-            "gemini-3.1-flash-lite-preview",
         ]
     )
                     
@@ -57,7 +57,7 @@ with st.sidebar:
 
 # --- 5. 主頁面邏輯 ---
 st.title("🎙️ 我的專屬 AI 錄音轉寫工具 (長音檔優化版)")
-st.write("針對分段音檔自動執行「上傳、轉錄、每段逐字稿（逐字稿請自行複製貼上）、總結」流水線。")
+st.write("針對分段音檔自動執行「上傳、轉錄、每段逐字稿、總結」流水線。")
 
 # 🍞 給網頁的記憶吐司：用來記住跑完的最終報告
 if "final_report" not in st.session_state:
@@ -80,6 +80,7 @@ if uploaded_files:
         st.write(f"**已就緒：{uploaded_file.name}**")
         st.audio(uploaded_file)
     
+    # 這是執行所有轉錄動作的開關
     if st.button("開始轉錄並生成摘要"):
         all_transcripts = [] # 初始化存放所有轉錄結果的列表
         full_progress = st.progress(0) # 初始化進度條
@@ -111,7 +112,6 @@ if uploaded_files:
                     # D. 執行單段轉錄
                     st.write("AI 正在進行高精度轉錄與校對...")
                     
-                    # 💡 將原本放在最後的「苦力活」全部移到這裡，讓 AI 分段處理！
                     chunk_prompt = f"""
                     請聽取這段音訊片段，並執行高品質的「完整逐字轉錄」。
                     請務必嚴格遵守以下 5 項規範：
@@ -127,7 +127,6 @@ if uploaded_files:
                     
                     response = model.generate_content(
                         [chunk_prompt, audio_file],
-                        generation_config=gen_config,
                         request_options={"timeout": 600}
                     )
                     
@@ -149,7 +148,7 @@ if uploaded_files:
             
             full_progress.progress((idx + 1) / len(sorted_files))
 
-# --- 第二階段：大一統整合 (當所有片段轉錄完成後) ---
+        # --- 第二階段：大一統整合 (當所有片段轉錄完成後) ---
         if all_transcripts:
             st.divider()
             with st.status("✨ 正在執行最終整合與摘要...", expanded=True) as status:
@@ -167,24 +166,24 @@ if uploaded_files:
                 
                 final_response = model.generate_content(final_prompt)
                 
-                # 💡 關鍵修正 1：把「AI 寫的摘要」跟「Python 黏合的逐字稿」完美結合！
+                # 將「AI 摘要」與「完整逐字稿」合體
                 complete_report = f"{final_response.text}\n\n---\n\n## 🗣️ 完整討論脈絡（逐字紀錄）\n\n{full_raw_context}"
                 
-                # 💡 關鍵修正 2：把這份大報告塞進「記憶吐司」裡存起來！
+                # 把大報告塞進記憶吐司裡存起來
                 st.session_state.final_report = complete_report
                 
                 status.update(label="✅ 全文處理完成！", state="complete")
 
-# 💡 關鍵修正 3：把顯示畫面跟下載按鈕「移出」處理按鈕的迴圈之外！
-        # 只要記憶吐司裡面有東西，就永遠顯示在畫面上，點擊下載也不會消失！
-        if st.session_state.final_report:
-            st.divider()
-            st.subheader("📝 最終整合報告")
-            st.markdown(st.session_state.final_report)
-    
-            st.download_button(
-                label="📥 下載完整報告 (包含摘要與完整逐字稿)",
-                data=st.session_state.final_report,  # 這裡下載的就會是完整的報告了
-                file_name="Final_Transcription_Report.md",
-                mime="text/markdown"
-            )
+    # 💡 完美縮排：確保顯示與下載按鈕與 if st.button 處於同一層級！
+    # 這樣只要記憶吐司裡有資料，重整網頁也絕對不會消失
+    if st.session_state.final_report:
+        st.divider()
+        st.subheader("📝 最終整合報告")
+        st.markdown(st.session_state.final_report)
+
+        st.download_button(
+            label="📥 下載完整報告 (包含摘要與完整逐字稿)",
+            data=st.session_state.final_report,  
+            file_name="Final_Transcription_Report.md",
+            mime="text/markdown"
+        )
