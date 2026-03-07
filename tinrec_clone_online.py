@@ -125,10 +125,6 @@ if uploaded_files:
                     {context_input}
                     """
                     
-                    gen_config = {}
-                    if use_thinking and "pro" in model_choice:
-                        gen_config["thinking_config"] = {"include_thoughts": True}
-                    
                     response = model.generate_content(
                         [chunk_prompt, audio_file],
                         generation_config=gen_config,
