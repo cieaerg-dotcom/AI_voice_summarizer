@@ -60,12 +60,12 @@ with st.sidebar:
         "thinking_level": "low" 
         }
                     
-            # 執行生成
-            response = model.generate_content(
-                [chunk_prompt, audio_file],
-                generation_config=gen_config,
-                request_options={"timeout": 600}
-            )
+    # 執行生成
+    response = model.generate_content(
+        [chunk_prompt, audio_file],
+        generation_config=gen_config,
+        request_options={"timeout": 600}
+    )
     context_input = st.text_area(
         "專業背景描述 (重要)",
         placeholder="盡可能描述音檔背景、專業範圍...",
