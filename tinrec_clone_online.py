@@ -49,16 +49,8 @@ with st.sidebar:
         ]
     )
                     
-    # 💡 根據最新文件，加入動態思考層級的設定
-    gen_config = {}
-
-    # 如果你在側邊欄勾選了「啟用思考模式」，且模型名稱包含 pro 或 3 系列
-    if use_thinking:
-        gen_config["thinking_config"] = {
-            # "low" 可以縮短延遲並降低成本，適合指令遵循；
-            # 如果遇到非常複雜的音檔，可以改成 "medium" 或 "high"
-            "thinking_level": "low" 
-        }
+    # 💡 加上這個打勾選項，這樣 use_thinking 這個變數就真正誕生了！
+    use_thinking = st.checkbox("💡 啟用思考模式 (限 Pro/3 系列)", value=False)
                     
     # 執行生成
     response = model.generate_content(
